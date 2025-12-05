@@ -1,0 +1,15 @@
+{
+  "name": "hyd-airport-fids",
+  "version": "1.0.0",
+  "description": "Hyderabad Airport FIDS Proxy Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "cheerio": "^1.0.0-rc.12",
+    "puppeteer": "^24.9.0"
+  }
+}

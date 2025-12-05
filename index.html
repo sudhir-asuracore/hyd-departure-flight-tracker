@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HYD Domestic Departures</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Custom Scrollbar for the table container */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #1f2937; 
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #4b5563; 
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #6b7280; 
+        }
+
+        /* Status Badge Animations */
+        @keyframes pulse-green {
+            0%, 100% { background-color: rgba(16, 185, 129, 0.2); text-shadow: 0 0 5px rgba(16, 185, 129, 0.5); }
+            50% { background-color: rgba(16, 185, 129, 0.4); text-shadow: 0 0 10px rgba(16, 185, 129, 0.8); }
+        }
+        .status-pulse-green {
+            animation: pulse-green 2s infinite;
+        }
+
+        /* Glassmorphism for the header */
+        .glass-header {
+            background: rgba(17, 24, 39, 0.85);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; opacity: 0; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="glass-header fixed w-full top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <i class="fa-solid fa-plane-departure text-yellow-500 text-2xl"></i>
+                <div class="flex flex-col">
+                    <h1 class="text-xl font-bold tracking-wider text-white leading-none">HYD <span class="text-gray-400 font-normal">DEPARTURES</span></h1>
+                    <span class="text-[10px] text-yellow-500 font-bold tracking-[0.2em] uppercase">Domestic Terminal</span>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-4">
+                <div class="hidden md:block text-right">
+                    <div id="clock-time" class="text-xl font-mono font-bold text-yellow-500">00:00:00</div>
+                    <div id="clock-date" class="text-xs text-gray-400 uppercase tracking-widest">LOADING DATE...</div>
+                </div>
+                <button onclick="fetchFlightData()" id="refresh-btn" class="p-2 rounded-full hover:bg-gray-700 transition-colors focus:outline-none">
+                    <i class="fa-solid fa-rotate text-gray-300"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-grow pt-20 pb-6 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+        
+        <!-- Statistics Section -->
+        <div id="stats-section" class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 hidden animate-fade-in">
+            <!-- Overall Status Card -->
+            <div class="bg-gray-800 rounded-xl border border-gray-700 p-4 flex flex-col justify-center items-center shadow-lg">
+                <h3 class="text-gray-400 text-xs uppercase tracking-widest mb-1">Reliability Score</h3>
+                <div id="forecast-badge" class="text-2xl font-bold text-white text-center">--</div>
+                <div class="text-[10px] text-gray-500 mt-1 text-center">Weighted by delay duration</div>
+            </div>
+
+            <!-- Delay Metric Card -->
+            <div class="bg-gray-800 rounded-xl border border-gray-700 p-4 flex flex-col justify-center items-center shadow-lg">
+                <h3 class="text-gray-400 text-xs uppercase tracking-widest mb-1">Total Delay Impact</h3>
+                <div id="total-delay-hours" class="text-xl font-mono font-bold text-red-400">0h 0m</div>
+                <div class="text-[10px] text-gray-500 mt-1">Cumulative loss today</div>
+            </div>
+            
+            <!-- Airline Reliability List -->
+            <div class="md:col-span-2 bg-gray-800 rounded-xl border border-gray-700 p-4 overflow-hidden flex flex-col shadow-lg">
+                 <div class="flex justify-between items-center mb-2">
+                     <h3 class="text-gray-400 text-xs uppercase tracking-widest">Airline Performance</h3>
+                     <span class="text-[10px] text-gray-500 italic">Score = OTP - (Avg Delay × Factor)</span>
+                 </div>
+                 <div id="airline-stats-container" class="flex gap-3 overflow-x-auto custom-scrollbar pb-2">
+                    <!-- Dynamic content will be injected here -->
+                 </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
+            <div class="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
+                <!-- Search Input -->
+                <div class="relative w-full sm:w-72">
+                    <input type="text" id="search-input" placeholder="Search flight or city..." 
+                        class="w-full bg-gray-800 border border-gray-700 text-white pl-10 pr-4 py-2 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition-all placeholder-gray-500 shadow-sm">
+                    <i class="fa-solid fa-search absolute left-3 top-3 text-gray-500"></i>
+                </div>
+
+                <!-- Airline Filter -->
+                <div class="relative w-full sm:w-64">
+                    <select id="airline-filter" 
+                        class="w-full bg-gray-800 border border-gray-700 text-white pl-10 pr-8 py-2 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none transition-all appearance-none shadow-sm cursor-pointer">
+                        <option value="ALL">All Airlines</option>
+                        <!-- Options injected by JS -->
+                    </select>
+                    <i class="fa-solid fa-filter absolute left-3 top-3 text-gray-500"></i>
+                    <i class="fa-solid fa-chevron-down absolute right-3 top-3 text-gray-500 text-xs pointer-events-none"></i>
+                </div>
+            </div>
+
+            <div class="text-sm text-gray-400 self-end md:self-center">
+                Status: <span id="connection-status" class="font-medium text-yellow-500">Connecting...</span>
+            </div>
+        </div>
+
+        <!-- Table Container -->
+        <div class="bg-gray-800 rounded-xl shadow-2xl overflow-hidden border border-gray-700 flex flex-col h-[calc(100vh-180px)]">
+            
+            <!-- Table Header -->
+            <div class="grid grid-cols-12 bg-gray-900/50 text-gray-400 text-xs font-bold uppercase tracking-wider py-4 px-6 border-b border-gray-700">
+                <div class="col-span-2 sm:col-span-1">Airline</div>
+                <div class="col-span-3 sm:col-span-2">Flight</div>
+                <div class="col-span-4 sm:col-span-4">Destination</div>
+                <div class="col-span-3 sm:col-span-2 text-center">Time</div>
+                <div class="hidden sm:block sm:col-span-1 text-center">Gate</div>
+                <div class="col-span-12 sm:col-span-2 mt-2 sm:mt-0 text-right sm:text-center">Status</div>
+            </div>
+
+            <!-- Scrollable Content -->
+            <div id="flights-container" class="overflow-y-auto custom-scrollbar relative flex-grow">
+                <!-- Loading State -->
+                <div id="loading-skeleton" class="absolute inset-0 p-4 space-y-4">
+                    <div class="animate-pulse flex space-x-4 bg-gray-700/30 h-16 rounded-lg w-full"></div>
+                    <div class="animate-pulse flex space-x-4 bg-gray-700/30 h-16 rounded-lg w-full"></div>
+                    <div class="animate-pulse flex space-x-4 bg-gray-700/30 h-16 rounded-lg w-full"></div>
+                    <div class="animate-pulse flex space-x-4 bg-gray-700/30 h-16 rounded-lg w-full"></div>
+                    <div class="animate-pulse flex space-x-4 bg-gray-700/30 h-16 rounded-lg w-full"></div>
+                </div>
+                
+                <!-- Rows will be injected here -->
+            </div>
+            
+            <!-- Empty State (Hidden by default) -->
+            <div id="no-results" class="hidden flex flex-col items-center justify-center h-full text-gray-500 p-8">
+                <i class="fa-solid fa-plane-slash text-4xl mb-3 opacity-50"></i>
+                <p>No flights found matching your search.</p>
+            </div>
+        </div>
+
+        <div class="mt-4 text-center text-xs text-gray-500">
+            Source: <a href="https://www.hyderabad.aero/live-flight-information.aspx" target="_blank" class="text-yellow-500 hover:text-yellow-400 underline">hyderabad.aero/live-flight-information</a>. Times in IST.
+        </div>
+    </main>
+
+    <script>
+        // --- Configuration ---
+        const API_URL = "/api/departures";
+        const BASE_IMG_URL = "https://www.hyderabad.aero"; 
+
+        // --- State ---
+        let allFlights = [];
+
+        // --- Fallback Data ---
+        // We keep this just in case the backend itself is offline
+        const FALLBACK_DATA = [
+            // Note: timeRaw is used by fallback, but server now provides parsed fields
+            { airlineImg: "images/airlines/IndiGo_6E.PNG", airlineName: "IndiGo", flightNo: "6E 327", dest: "Ranchi (IXR)", std: "15:40", etd: "16:25", delayMins: 45, gate: "13", status: "DELAYED" },
+            { airlineImg: "images/airlines/IndiGo_6E.PNG", airlineName: "IndiGo", flightNo: "6E 6227", dest: "Vishakhapatnam", std: "17:25", etd: "17:25", delayMins: 0, gate: "110", status: "ON TIME" },
+            { airlineImg: "images/airlines/IndiGo_6E.PNG", airlineName: "IndiGo", flightNo: "6E 6594", dest: "Coimbatore", std: "18:30", etd: "19:15", delayMins: 45, gate: "105", status: "DELAYED" },
+            { airlineImg: "images/airlines/IndiGo_6E.PNG", airlineName: "IndiGo", flightNo: "6E 6233", dest: "Bangalore (BLR)", std: "19:00", etd: "19:00", delayMins: 0, gate: "118", status: "ON TIME" },
+            { airlineImg: "images/airlines/IndiGo_6E.PNG", airlineName: "IndiGo", flightNo: "6E 785", dest: "Mumbai (BOM)", std: "19:15", etd: "19:15", delayMins: 0, gate: "17", status: "ON TIME" },
+            { airlineImg: "images/airlines/IndiGo_6E.PNG", airlineName: "IndiGo", flightNo: "6E 169", dest: "Cochin (COK)", std: "19:35", etd: "19:35", delayMins: 0, gate: "6", status: "ON TIME" },
+            { airlineImg: "images/airlines/IndiGo_6E.PNG", airlineName: "IndiGo", flightNo: "6E 204", dest: "Cochin (COK)", std: "21:05", etd: "21:50", delayMins: 45, gate: "119", status: "DELAYED" },
+            { airlineImg: "images/airlines/IndiGo_6E.PNG", airlineName: "IndiGo", flightNo: "6E 6252", dest: "Chandigarh", std: "21:05", etd: "21:05", delayMins: 0, gate: "7", status: "ON TIME" },
+            { airlineImg: "images/airlines/IndiGo_6E.PNG", airlineName: "IndiGo", flightNo: "6E 984", dest: "Goa (GOI)", std: "21:15", etd: "21:15", delayMins: 0, gate: "11", status: "ON TIME" },
+            { airlineImg: "images/airlines/Air-India_AI.PNG", airlineName: "Air India", flightNo: "AI 2870", dest: "Delhi (DEL)", std: "21:25", etd: "21:25", delayMins: 0, gate: "18", status: "ON TIME" },
+            { airlineImg: "images/airlines/IndiGo_6E.PNG", airlineName: "IndiGo", flightNo: "6E 2256", dest: "Delhi (DEL)", std: "21:30", etd: "21:30", delayMins: 0, gate: "13", status: "ON TIME" },
+            { airlineImg: "images/airlines/IndiGo_6E.PNG", airlineName: "IndiGo", flightNo: "6E 6638", dest: "Jaipur (JAI)", std: "21:00", etd: "21:00", delayMins: 0, gate: "-", status: "CANCELLED" },
+            { airlineImg: "images/airlines/Air-India-Express-AIX.PNG", airlineName: "Air India Express", flightNo: "IX 2889", dest: "Bangalore (BLR)", std: "21:30", etd: "21:40", delayMins: 10, gate: "16", status: "DELAYED" },
+            { airlineImg: "images/airlines/IndiGo_6E.PNG", airlineName: "IndiGo", flightNo: "6E 6007", dest: "Chennai (MAA)", std: "23:05", etd: "23:05", delayMins: 0, gate: "10", status: "ON TIME" }
+        ];
+
+        // --- Clock Logic ---
+        function updateClock() {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const dateString = now.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+            
+            document.getElementById('clock-time').textContent = timeString;
+            document.getElementById('clock-date').textContent = dateString;
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // --- Helper: Extract Airline Name from Image URL ---
+        function getAirlineNameFromUrl(url) {
+            if (!url) return "Other";
+            try {
+                const filename = url.split('/').pop().split('.')[0]; 
+                const parts = filename.split('_');
+                let name = parts[0].replace(/-/g, ' ');
+                return name || "Other";
+            } catch (e) {
+                return "Other";
+            }
+        }
+
+        // --- Error Handling ---
+        window.handleImageError = function(img) {
+            const airlineName = img.getAttribute('alt') || '';
+            img.style.display = 'none';
+            img.parentElement.innerHTML = `
+                <div class="flex flex-col items-center justify-center w-full">
+                    <i class="fa-solid fa-plane text-gray-500 text-xl mb-1"></i>
+                    <span class="text-[10px] text-gray-400 font-bold text-center leading-none uppercase tracking-wider break-words w-full">${airlineName}</span>
+                </div>
+            `;
+        };
+
+        // --- Render Logic ---
+        function renderFlights(flights) {
+            const container = document.getElementById('flights-container');
+            const noResults = document.getElementById('no-results');
+            const skeleton = document.getElementById('loading-skeleton');
+            
+            container.innerHTML = '';
+            
+            if (flights.length === 0) {
+                noResults.classList.remove('hidden');
+                return;
+            }
+            
+            noResults.classList.add('hidden');
+            if(skeleton) skeleton.remove(); 
+
+            flights.forEach((flight, index) => {
+                // Status Logic
+                let statusColorClass = "text-gray-400 bg-gray-700/50";
+                let rowBorderClass = "border-l-4 border-transparent";
+                let statusPulse = "";
+
+                const s = flight.status.toUpperCase();
+                
+                if (s.includes("CANCEL")) {
+                    statusColorClass = "bg-red-900/30 text-red-500 border border-red-800/50";
+                    rowBorderClass = "border-l-4 border-red-500";
+                } else if (flight.delayMins > 15 || s.includes("DELAY")) {
+                    statusColorClass = "bg-yellow-900/30 text-yellow-500 border border-yellow-800/50";
+                    rowBorderClass = "border-l-4 border-yellow-500";
+                } else if (s.includes("ONTIME") || s.includes("ON TIME") || s.includes("DEPARTED")) {
+                    statusColorClass = "bg-green-900/30 text-green-400 border border-green-800/50";
+                    rowBorderClass = "border-l-4 border-green-500";
+                    if(s.includes("BOARDING")) statusPulse = "status-pulse-green";
+                }
+
+                let imgUrl = flight.airlineImg;
+                if (imgUrl) {
+                    if (imgUrl.startsWith('/')) imgUrl = imgUrl.substring(1);
+                    if (!imgUrl.startsWith('http')) imgUrl = BASE_IMG_URL + '/' + imgUrl;
+                }
+
+                const row = document.createElement('div');
+                row.className = `grid grid-cols-12 gap-2 sm:gap-4 p-4 sm:px-6 hover:bg-gray-700/40 transition-colors border-b border-gray-700 items-center animate-fade-in ${rowBorderClass}`;
+                row.style.animationDelay = `${index * 50}ms`;
+
+                const fallbackIcon = `
+                    <div class="flex flex-col items-center justify-center w-full">
+                        <i class="fa-solid fa-plane text-gray-500 text-xl mb-1"></i>
+                        <span class="text-[10px] text-gray-400 font-bold text-center leading-none uppercase tracking-wider break-words w-full">${flight.airlineName || ''}</span>
+                    </div>
+                `;
+
+                let timeDisplay = `<span class="text-yellow-400 font-mono text-base sm:text-xl font-bold tracking-widest">${flight.std}</span>`;
+                
+                if (flight.delayMins > 0) {
+                    timeDisplay = `
+                        <div class="flex flex-col items-center">
+                            <span class="text-gray-500 line-through text-xs font-mono">${flight.std}</span>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-yellow-400 font-mono text-base sm:text-xl font-bold tracking-widest">${flight.etd}</span>
+                                <span class="bg-red-500/20 text-red-400 text-[10px] px-1 rounded font-bold border border-red-500/30">+${formatDuration(flight.delayMins)}</span>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                row.innerHTML = `
+                    <div class="col-span-2 sm:col-span-1 flex items-center justify-center">
+                        ${imgUrl ? 
+                            `<img src="${imgUrl}" 
+                                  alt="${flight.airlineName}" 
+                                  title="${flight.airlineName}" 
+                                  class="h-8 w-8 sm:h-10 sm:w-10 object-contain bg-white rounded-md p-1"
+                                  onerror="handleImageError(this)">` 
+                            : fallbackIcon}
+                    </div>
+                    <div class="col-span-3 sm:col-span-2 flex flex-col justify-center">
+                        <span class="text-white font-mono text-sm sm:text-base font-bold">${flight.flightNo}</span>
+                    </div>
+                    <div class="col-span-4 sm:col-span-4 flex flex-col justify-center">
+                        <span class="text-white font-medium truncate text-sm sm:text-lg">${flight.dest}</span>
+                    </div>
+                    <div class="col-span-3 sm:col-span-2 text-center flex flex-col justify-center items-center">
+                        ${timeDisplay}
+                    </div>
+                    <div class="hidden sm:flex sm:col-span-1 text-center flex-col justify-center">
+                        <span class="text-gray-300 font-mono text-lg">${flight.gate || '-'}</span>
+                    </div>
+                    <div class="col-span-12 sm:col-span-2 mt-2 sm:mt-0 flex justify-end sm:justify-center">
+                        <span class="px-3 py-1 rounded text-xs sm:text-sm uppercase tracking-wider ${statusColorClass} ${statusPulse} w-full sm:w-auto text-center block">
+                            ${flight.status}
+                        </span>
+                    </div>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        // --- Helper: Format Minutes to Xh Ym ---
+        function formatDuration(minutes) {
+            const h = Math.floor(minutes / 60);
+            const m = minutes % 60;
+            if (h > 0) return `${h}h ${m}m`;
+            return `${m}m`;
+        }
+
+        // --- Statistics Logic ---
+        function calculateAndRenderStats(flights) {
+            const statsContainer = document.getElementById('stats-section');
+            statsContainer.classList.remove('hidden');
+
+            const airlineStats = {};
+            let totalFlights = 0;
+            let totalDelayMinutes = 0;
+            let onTimeFlights = 0;
+
+            flights.forEach(f => {
+                const airline = f.airlineName;
+                if (!airlineStats[airline]) {
+                    airlineStats[airline] = { total: 0, delayMinutes: 0, onTime: 0 };
+                }
+
+                airlineStats[airline].total++;
+                totalFlights++;
+                
+                const delay = f.delayMins;
+                airlineStats[airline].delayMinutes += delay;
+                totalDelayMinutes += delay;
+
+                const s = f.status.toUpperCase();
+                const isCancelled = s.includes("CANCEL");
+                const isDelayed = delay >= 15 || s.includes("DELAY"); 
+
+                if (!isCancelled && !isDelayed) {
+                    airlineStats[airline].onTime++;
+                    onTimeFlights++;
+                }
+            });
+
+            const pctOnTime = totalFlights === 0 ? 0 : (onTimeFlights / totalFlights) * 100;
+            const avgDelayHours = totalFlights === 0 ? 0 : (totalDelayMinutes / 60) / totalFlights;
+            const score = Math.max(0, Math.round(pctOnTime - (avgDelayHours * 20)));
+
+            const forecastBadge = document.getElementById('forecast-badge');
+            let color = "text-green-400";
+            if (score < 50) color = "text-red-500";
+            else if (score < 80) color = "text-yellow-400";
+            
+            forecastBadge.textContent = score + "/100";
+            forecastBadge.className = `text-2xl font-bold ${color}`;
+
+            document.getElementById('total-delay-hours').textContent = formatDuration(totalDelayMinutes);
+
+            const container = document.getElementById('airline-stats-container');
+            container.innerHTML = '';
+
+            Object.keys(airlineStats).map(name => {
+                const data = airlineStats[name];
+                const airPct = data.total === 0 ? 0 : (data.onTime / data.total) * 100;
+                const airAvgDelay = data.total === 0 ? 0 : (data.delayMinutes / 60) / data.total;
+                const airScore = Math.max(0, Math.round(airPct - (airAvgDelay * 20)));
+                return { name, score: airScore, count: data.total };
+            }).sort((a, b) => a.score - b.score).forEach(stat => {
+                if (stat.name === "Other") return;
+                
+                let colorClass = "text-green-400 border-green-500/30 bg-green-900/20";
+                if (stat.score < 50) colorClass = "text-red-400 border-red-500/30 bg-red-900/20";
+                else if (stat.score < 80) colorClass = "text-yellow-400 border-yellow-500/30 bg-yellow-900/20";
+
+                const card = document.createElement('div');
+                card.className = `flex-shrink-0 w-28 rounded-lg p-2 border ${colorClass} flex flex-col items-center justify-between transition-transform hover:scale-105`;
+                card.innerHTML = `
+                    <span class="text-[10px] text-gray-300 font-bold truncate w-full text-center mb-1" title="${stat.name}">${stat.name}</span>
+                    <div class="text-lg font-mono font-bold leading-none">${stat.score}</div>
+                    <span class="text-[9px] text-gray-500 mt-1">${stat.count} flights</span>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // --- Filter Population ---
+        function populateAirlineFilter(flights) {
+            const select = document.getElementById('airline-filter');
+            const currentSelection = select.value;
+            const airlines = new Set(flights.map(f => f.airlineName).filter(n => n && n !== "Other"));
+            const sortedAirlines = Array.from(airlines).sort();
+            select.innerHTML = '<option value="ALL">All Airlines</option>';
+            sortedAirlines.forEach(airline => {
+                const option = document.createElement('option');
+                option.value = airline;
+                option.textContent = airline;
+                select.appendChild(option);
+            });
+            if (sortedAirlines.includes(currentSelection)) select.value = currentSelection;
+        }
+
+        // --- Fetch Logic ---
+        async function fetchFlightData() {
+            const statusEl = document.getElementById('connection-status');
+            const btn = document.getElementById('refresh-btn');
+            
+            statusEl.textContent = "Fetching Live Data...";
+            statusEl.className = "font-medium text-yellow-500";
+            btn.classList.add('animate-spin');
+            
+            console.log("Starting Fetch to Local Backend...");
+            
+            try {
+                // Fetch from OUR backend proxy
+                const response = await fetch(API_URL);
+                
+                if (!response.ok) {
+                    // Check for specific JSON error from our proxy
+                    if (response.headers.get("content-type")?.includes("application/json")) {
+                        const errDetails = await response.json();
+                        throw new Error(errDetails.error || `Backend returned ${response.status}`);
+                    }
+                    throw new Error(`Backend returned ${response.status}`);
+                }
+                
+                // The server now returns clean JSON
+                const parsedFlights = await response.json();
+                
+                if (Array.isArray(parsedFlights)) {
+                     if (parsedFlights.length > 0) {
+                        allFlights = parsedFlights;
+                        statusEl.textContent = "Live Data Active";
+                        statusEl.className = "font-medium text-green-500";
+                        console.log("Successfully loaded live data.");
+                    } else {
+                        // This means the scrape was successful but found no flights
+                        allFlights = [];
+                        statusEl.textContent = "Live Data (No Flights)";
+                        statusEl.className = "font-medium text-gray-400";
+                        console.warn("Parsed list is empty.");
+                    }
+                } else {
+                    // Handle cases where the server might not return an array (e.g., an error object)
+                    throw new Error(parsedFlights.error || "Invalid data format from server");
+                }
+
+            } catch (error) {
+                console.error("Fetch/Parse Error:", error);
+                statusEl.textContent = "Offline Mode (Snapshot)";
+                statusEl.className = "font-medium text-gray-500";
+                
+                // Fallback data doesn't need parsing anymore since it's already clean
+                allFlights = FALLBACK_DATA;
+            } finally {
+                calculateAndRenderStats(allFlights);
+                populateAirlineFilter(allFlights);
+                applyFilters();
+                btn.classList.remove('animate-spin');
+            }
+        }
+
+        // --- Filter & Search Logic ---
+        function applyFilters() {
+            const searchTerm = document.getElementById('search-input').value.toLowerCase();
+            const airlineFilter = document.getElementById('airline-filter').value;
+
+            // Filter for the flight list display (applies both search and airline filters)
+            const displayFlights = allFlights.filter(f => {
+                const matchesSearch = 
+                    f.flightNo.toLowerCase().includes(searchTerm) || 
+                    f.dest.toLowerCase().includes(searchTerm) ||
+                    f.status.toLowerCase().includes(searchTerm);
+                const matchesAirline = airlineFilter === "ALL" || f.airlineName === airlineFilter;
+                return matchesSearch && matchesAirline;
+            });
+            renderFlights(displayFlights);
+
+            // Determine the flight set for the statistics section
+            let statsFlights;
+            if (airlineFilter === "ALL") {
+                statsFlights = allFlights; // Use all flights if "All Airlines" is selected
+            } else {
+                // For stats, use all flights from the selected airline, ignoring the text search
+                statsFlights = allFlights.filter(f => f.airlineName === airlineFilter);
+            }
+            // Re-render the statistics based on the determined flight set
+            calculateAndRenderStats(statsFlights);
+        }
+
+        document.getElementById('search-input').addEventListener('input', applyFilters);
+        document.getElementById('airline-filter').addEventListener('change', applyFilters);
+
+        // --- Init ---
+        fetchFlightData();
+
+    </script>
+</body>
+</html>
